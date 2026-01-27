@@ -14,8 +14,9 @@ logger = logging.getLogger(__name__)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DIST_DIR = os.path.join(BASE_DIR, '../dist')
 
-# Initialize Flask with explicit static folder
-app = Flask(__name__, static_folder=DIST_DIR, static_url_path='')
+# Initialize Flask
+# Do not set static_url_path='' as it conflicts with the catch-all route for the SPA
+app = Flask(__name__, static_folder=DIST_DIR)
 CORS(app)
 
 # Store streams in memory
@@ -60,12 +61,10 @@ def serve(path):
     Serve static files from the React build (dist folder).
     If file doesn't exist, fallback to index.html for SPA routing.
     """
-    # Normalize path to strip leading slashes which might confuse os.path.join
     if path != "" and os.path.exists(os.path.join(app.static_folder, path)):
         return send_from_directory(app.static_folder, path)
-    
-    # Fallback to index.html for any other route (SPA behavior)
-    return send_from_directory(app.static_folder, 'index.html')
+    else:
+        return send_from_directory(app.static_folder, 'index.html')
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=10000)
