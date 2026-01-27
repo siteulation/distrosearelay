@@ -1,0 +1,5 @@
+{
+  "name": "Distrosea Relay",
+  "description": "A bridge between your remote Distrosea instance and your local browser. Stream audio and data from a remote Linux environment to the web.",
+  "requestFramePermissions": []
+}
