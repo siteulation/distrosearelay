@@ -9,26 +9,17 @@ from collections import defaultdict, deque
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Setup Flask to serve static files from the build directory
-# We assume 'dist' is in the parent directory of 'backend'
-app = Flask(__name__, static_folder='../dist')
+# Determine absolute path to the dist folder
+# app.py is in backend/, so dist/ is in ../dist relative to this file
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DIST_DIR = os.path.join(BASE_DIR, '../dist')
+
+# Initialize Flask with explicit static folder
+app = Flask(__name__, static_folder=DIST_DIR, static_url_path='')
 CORS(app)
 
 # Store streams in memory
 streams = defaultdict(lambda: deque(maxlen=200)) 
-
-@app.route('/', defaults={'path': ''})
-@app.route('/<path:path>')
-def serve(path):
-    """
-    Serve static files from the React build (dist folder).
-    If file doesn't exist, fallback to index.html for SPA routing.
-    """
-    if path != "" and os.path.exists(os.path.join(app.static_folder, path)):
-        return send_from_directory(app.static_folder, path)
-    else:
-        # Fallback to index.html
-        return send_from_directory(app.static_folder, 'index.html')
 
 @app.route('/api/status')
 def status():
@@ -60,6 +51,21 @@ def listen_stream(code_id):
                 time.sleep(0.01) # Small sleep to prevent CPU spin
                 
     return Response(stream_with_context(generate()), mimetype='application/octet-stream')
+
+# Catch-all route must be last to avoid shadowing API routes
+@app.route('/', defaults={'path': ''})
+@app.route('/<path:path>')
+def serve(path):
+    """
+    Serve static files from the React build (dist folder).
+    If file doesn't exist, fallback to index.html for SPA routing.
+    """
+    # Normalize path to strip leading slashes which might confuse os.path.join
+    if path != "" and os.path.exists(os.path.join(app.static_folder, path)):
+        return send_from_directory(app.static_folder, path)
+    
+    # Fallback to index.html for any other route (SPA behavior)
+    return send_from_directory(app.static_folder, 'index.html')
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=10000)
