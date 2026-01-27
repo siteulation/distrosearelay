@@ -108,8 +108,6 @@ const Receiver: React.FC = () => {
     setStatusMessage(`Attempting handshake with ${API_BASE_URL}...`);
     
     try {
-        // In a real implementation, we would start a fetch stream or EventSource here
-        // Since the backend might not exist in this preview, we handle the error gracefully
         const response = await fetch(`${API_BASE_URL}/listen/${code}`, {
             method: 'GET',
         });
@@ -123,21 +121,54 @@ const Receiver: React.FC = () => {
         }
 
         setConnectionState(ConnectionState.CONNECTED);
-        setStatusMessage("STREAM ESTABLISHED. LISTENING...");
+        setStatusMessage("STREAM ESTABLISHED. BUFFERING...");
 
         const reader = response.body.getReader();
         
-        // Basic stream reader loop
+        // Process PCM Stream
         const processStream = async () => {
             while (true) {
                 const { done, value } = await reader.read();
                 if (done) break;
-                // Here we would decode PCM data and schedule it
-                // For this demo, we just acknowledge receipt
-                if (value && audioContextRef.current) {
-                    // Placeholder: Real PCM decoding is complex in browser without a WAV header
-                    // We assume the Python server sends raw PCM float32 or Int16
-                    // This part usually requires an AudioWorklet for glitch-free streaming
+                
+                if (value && audioContextRef.current && gainNodeRef.current) {
+                    // value is a Uint8Array of bytes (S16LE)
+                    // We need to convert it to Float32 for Web Audio API
+                    
+                    // Create Int16 view. Assumes little-endian (standard for WebAssembly/most CPUs)
+                    // If byte length is odd, slice it to be even to avoid errors
+                    const alignedLength = value.length - (value.length % 2);
+                    const int16View = new Int16Array(value.buffer, value.byteOffset, alignedLength / 2);
+                    
+                    // Create Audio Buffer
+                    // Client records at 44100Hz, Mono
+                    const audioBuffer = audioContextRef.current.createBuffer(
+                        1, 
+                        int16View.length, 
+                        44100
+                    );
+                    
+                    const channelData = audioBuffer.getChannelData(0);
+                    
+                    // Convert Int16 to Float32 (-1.0 to 1.0)
+                    for (let i = 0; i < int16View.length; i++) {
+                        channelData[i] = int16View[i] / 32768.0;
+                    }
+                    
+                    // Schedule playback
+                    const source = audioContextRef.current.createBufferSource();
+                    source.buffer = audioBuffer;
+                    source.connect(gainNodeRef.current);
+                    
+                    // Ensure gapless playback by scheduling next chunk at the end of the last
+                    // If we fell behind (buffer underrun), reset to currentTime
+                    const currentTime = audioContextRef.current.currentTime;
+                    if (nextStartTimeRef.current < currentTime) {
+                        nextStartTimeRef.current = currentTime;
+                    }
+                    
+                    source.start(nextStartTimeRef.current);
+                    nextStartTimeRef.current += audioBuffer.duration;
                 }
             }
         };
@@ -146,14 +177,12 @@ const Receiver: React.FC = () => {
     } catch (err) {
         console.error(err);
         setConnectionState(ConnectionState.ERROR);
-        setStatusMessage(`Connection Failed: ${(err as Error).message}. (Did you deploy the backend?)`);
+        setStatusMessage(`Connection Failed: ${(err as Error).message}. (Ensure backend is running)`);
         
         // Fallback suggestion
         setTimeout(() => {
             if (confirm("Connection failed. Switch to Demo Mode to see the UI in action?")) {
                 setUseDemoMode(true);
-                // Recursively call connect (will hit demo branch)
-                // Note: In production code, handle this cleaner to avoid recursion
             }
         }, 1000);
     }

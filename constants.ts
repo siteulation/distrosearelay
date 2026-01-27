@@ -1,4 +1,6 @@
-export const API_BASE_URL = "https://distrosea-relay.onrender.com";
+// In production, we use relative URL (backend serves frontend). 
+// In development/standalone, we might point to the specific URL.
+export const API_BASE_URL = (import.meta as any).env?.PROD ? "" : "https://distrosea-relay.onrender.com";
 
 export const CLIENT_SCRIPT_PY = `import requests
 import time
@@ -79,25 +81,34 @@ if __name__ == "__main__":
     main()
 `;
 
-export const SERVER_SCRIPT_PY = `from flask import Flask, request, Response, stream_with_context
+export const SERVER_SCRIPT_PY = `from flask import Flask, request, Response, stream_with_context, send_from_directory
 from flask_cors import CORS
 import time
+import logging
+import os
 from collections import defaultdict, deque
 
-app = Flask(__name__)
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Setup Flask to serve static files from the build directory
+app = Flask(__name__, static_folder='../dist')
 CORS(app)
 
-# Store streams in memory (Production would use Redis)
-# Dictionary mapping session_code -> deque of chunks
-streams = defaultdict(lambda: deque(maxlen=50)) 
+# Store streams in memory
+streams = defaultdict(lambda: deque(maxlen=200)) 
 
-@app.route('/')
-def home():
-    return {"status": "Distrosea Relay Server Online", "version": "1.0.0"}
+@app.route('/', defaults={'path': ''})
+@app.route('/<path:path>')
+def serve(path):
+    if path != "" and os.path.exists(os.path.join(app.static_folder, path)):
+        return send_from_directory(app.static_folder, path)
+    else:
+        return send_from_directory(app.static_folder, 'index.html')
 
 @app.route('/stream/<code_id>', methods=['POST'])
 def ingest_stream(code_id):
-    """Receives binary audio chunks from the Python client."""
     chunk = request.data
     if chunk:
         streams[code_id].append(chunk)
@@ -105,18 +116,16 @@ def ingest_stream(code_id):
 
 @app.route('/listen/<code_id>', methods=['GET'])
 def listen_stream(code_id):
-    """Streams audio data to the browser using Server-Sent Events or Chunked Transfer."""
     def generate():
+        logger.info(f"Client connected to listen to {code_id}")
         while True:
             if streams[code_id]:
-                # Yield the oldest chunk
                 yield streams[code_id].popleft()
             else:
-                time.sleep(0.01) # Avoid busy wait
+                time.sleep(0.01)
                 
-    return Response(generate(), mimetype='audio/pcm')
+    return Response(stream_with_context(generate()), mimetype='application/octet-stream')
 
 if __name__ == '__main__':
-    # Run on port 10000 (Render default) or 5000
     app.run(host='0.0.0.0', port=10000)
 `;

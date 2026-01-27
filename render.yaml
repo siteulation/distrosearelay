@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: distrosea-relay
+    env: python
+    buildCommand: npm install && npm run build && pip install -r backend/requirements.txt
+    startCommand: gunicorn --chdir backend app:app
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.10.0
+      - key: NODE_VERSION
+        value: 18.17.0
