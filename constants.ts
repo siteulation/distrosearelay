@@ -92,20 +92,24 @@ from collections import defaultdict, deque
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Determine absolute path to the dist folder
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DIST_DIR = os.path.join(BASE_DIR, 'dist')
+
+logger.info(f"Serving static files from: {DIST_DIR}")
+if not os.path.exists(DIST_DIR):
+    logger.error("DIST FOLDER DOES NOT EXIST! Run 'npm run build' first.")
+
 # Setup Flask to serve static files from the build directory
-app = Flask(__name__, static_folder='../dist')
+app = Flask(__name__, static_folder=DIST_DIR)
 CORS(app)
 
 # Store streams in memory
 streams = defaultdict(lambda: deque(maxlen=200)) 
 
-@app.route('/', defaults={'path': ''})
-@app.route('/<path:path>')
-def serve(path):
-    if path != "" and os.path.exists(os.path.join(app.static_folder, path)):
-        return send_from_directory(app.static_folder, path)
-    else:
-        return send_from_directory(app.static_folder, 'index.html')
+@app.route('/api/status')
+def status():
+    return {"status": "Distrosea Relay Server Online", "version": "1.0.0"}
 
 @app.route('/stream/<code_id>', methods=['POST'])
 def ingest_stream(code_id):
@@ -125,6 +129,17 @@ def listen_stream(code_id):
                 time.sleep(0.01)
                 
     return Response(stream_with_context(generate()), mimetype='application/octet-stream')
+
+@app.route('/')
+def index():
+    return send_from_directory(app.static_folder, 'index.html')
+
+@app.route('/<path:path>')
+def serve_static(path):
+    file_path = os.path.join(app.static_folder, path)
+    if os.path.exists(file_path) and os.path.isfile(file_path):
+        return send_from_directory(app.static_folder, path)
+    return send_from_directory(app.static_folder, 'index.html')
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=10000)
