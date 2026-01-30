@@ -10,12 +10,15 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Determine absolute path to the dist folder
-# app.py is in backend/, so dist/ is in ../dist relative to this file
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DIST_DIR = os.path.join(BASE_DIR, '../dist')
 
+logger.info(f"Serving static files from: {DIST_DIR}")
+if not os.path.exists(DIST_DIR):
+    logger.error("DIST FOLDER DOES NOT EXIST! Run 'npm run build' first.")
+
 # Initialize Flask
-# Do not set static_url_path='' as it conflicts with the catch-all route for the SPA
+# static_folder is set, but we handle serving manually to support SPA routing
 app = Flask(__name__, static_folder=DIST_DIR)
 CORS(app)
 
@@ -46,25 +49,32 @@ def listen_stream(code_id):
         logger.info(f"Client connected to listen to {code_id}")
         while True:
             if streams[code_id]:
-                # Yield the oldest chunk
                 yield streams[code_id].popleft()
             else:
-                time.sleep(0.01) # Small sleep to prevent CPU spin
+                time.sleep(0.01)
                 
     return Response(stream_with_context(generate()), mimetype='application/octet-stream')
 
-# Catch-all route must be last to avoid shadowing API routes
-@app.route('/', defaults={'path': ''})
+# Serve root index.html explicitly
+@app.route('/')
+def index():
+    logger.info("Serving root index.html")
+    return send_from_directory(app.static_folder, 'index.html')
+
+# Serve other static files or fallback to index.html
 @app.route('/<path:path>')
-def serve(path):
-    """
-    Serve static files from the React build (dist folder).
-    If file doesn't exist, fallback to index.html for SPA routing.
-    """
-    if path != "" and os.path.exists(os.path.join(app.static_folder, path)):
+def serve_static(path):
+    # Check if file exists in dist folder
+    file_path = os.path.join(app.static_folder, path)
+    if os.path.exists(file_path) and os.path.isfile(file_path):
         return send_from_directory(app.static_folder, path)
-    else:
-        return send_from_directory(app.static_folder, 'index.html')
+    
+    # Fallback to index.html for SPA (unless it's an API call which should be caught above)
+    # We generally don't want to return index.html for missing assets like .js/.css
+    if path.startswith("assets/"):
+        return "Asset not found", 404
+        
+    return send_from_directory(app.static_folder, 'index.html')
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=10000)
