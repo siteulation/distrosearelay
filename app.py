@@ -9,22 +9,12 @@ from collections import defaultdict, deque
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Determine absolute path to the dist folder
+# Define the static folder path (./static)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DIST_DIR = os.path.join(BASE_DIR, 'dist')
+STATIC_DIR = os.path.join(BASE_DIR, 'static')
 
-logger.info(f"Current Working Directory: {os.getcwd()}")
-logger.info(f"Base Directory: {BASE_DIR}")
-logger.info(f"Dist Directory: {DIST_DIR}")
-
-if os.path.exists(DIST_DIR):
-    logger.info("Dist directory found.")
-    logger.info(f"Dist contents: {os.listdir(DIST_DIR)}")
-else:
-    logger.warning("DIST FOLDER NOT FOUND. Frontend will not be served correctly until built.")
-
-# Initialize Flask
-app = Flask(__name__, static_folder=DIST_DIR)
+# Initialize Flask with explicit static folder
+app = Flask(__name__, static_folder=STATIC_DIR)
 CORS(app)
 
 # Store streams in memory
@@ -32,13 +22,12 @@ streams = defaultdict(lambda: deque(maxlen=200))
 
 @app.route('/api/status')
 def status():
-    return {"status": "Distrosea Relay Server Online", "version": "1.0.0"}
+    return {"status": "Distrosea Relay Server Online", "version": "2.0.0"}
 
 @app.route('/stream/<code_id>', methods=['POST'])
 def ingest_stream(code_id):
     """
     Receives binary audio chunks from the Python client.
-    Expects raw body to be PCM data.
     """
     chunk = request.data
     if chunk:
@@ -48,7 +37,7 @@ def ingest_stream(code_id):
 @app.route('/listen/<code_id>', methods=['GET'])
 def listen_stream(code_id):
     """
-    Streams audio data to the browser using chunked transfer encoding.
+    Streams audio data to the browser.
     """
     def generate():
         logger.info(f"Client connected to listen to {code_id}")
@@ -62,54 +51,18 @@ def listen_stream(code_id):
 
 @app.route('/')
 def index():
-    # Check if index.html exists
-    index_path = os.path.join(app.static_folder, 'index.html')
-    if not os.path.exists(index_path):
-        # Fallback debug page
-        try:
-            cwd_contents = os.listdir(os.getcwd())
-        except:
-            cwd_contents = "Error listing directory"
-            
-        return f"""
-        <html>
-            <body style="font-family: monospace; padding: 20px; background: #111; color: #f0f0f0;">
-                <h1>Deployment Status: Waiting for Build</h1>
-                <p style="color: #ff5555;">ERROR: The frontend build artifact (dist/index.html) is missing.</p>
-                <hr style="border-color: #333;" />
-                <h3>Debug Info:</h3>
-                <ul>
-                    <li>Base Dir: {BASE_DIR}</li>
-                    <li>Expected Dist Dir: {DIST_DIR}</li>
-                    <li>Dist Dir Exists: {os.path.exists(DIST_DIR)}</li>
-                </ul>
-                <h3>Root Directory Contents:</h3>
-                <pre style="background: #222; padding: 10px;">{cwd_contents}</pre>
-                <p><strong>Solution:</strong> Ensure your build command includes <code>npm install && npm run build</code> and that dependencies are installed.</p>
-            </body>
-        </html>
-        """, 500
-        
-    logger.info("Serving root index.html")
+    """Serve the single page app."""
     return send_from_directory(app.static_folder, 'index.html')
 
 @app.route('/<path:path>')
 def serve_static(path):
-    # Check if file exists in dist folder
-    file_path = os.path.join(app.static_folder, path)
-    if os.path.exists(file_path) and os.path.isfile(file_path):
-        return send_from_directory(app.static_folder, path)
-    
-    # Don't fallback to index.html for assets to avoid confusion
-    if path.startswith("assets/") or path.endswith(".js") or path.endswith(".css"):
-        return "Asset not found", 404
-        
-    # Fallback to index.html for SPA routing
-    index_path = os.path.join(app.static_folder, 'index.html')
-    if os.path.exists(index_path):
-        return send_from_directory(app.static_folder, 'index.html')
-    else:
-        return "Frontend not built", 404
+    """Serve static assets (js, css, images)."""
+    return send_from_directory(app.static_folder, path)
 
 if __name__ == '__main__':
+    # Ensure static folder exists to prevent errors locally
+    if not os.path.exists(STATIC_DIR):
+        os.makedirs(STATIC_DIR)
+        print(f"Created {STATIC_DIR}")
+    
     app.run(host='0.0.0.0', port=10000)
